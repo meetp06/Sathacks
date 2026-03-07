@@ -13,7 +13,7 @@ export async function logToGoogleSheet(data: {
     controlCtr: string;
     variantCtr: string;
     winner: string;
-    insight: string;
+    insight: string; 
 }) {
     try {
         // Assuming you have a Google Auth already connected in your Composio dashboard
