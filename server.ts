@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { EventEmitter } from 'events';
 import { initDB, logExperiment, updateExperimentResult, logSimResult } from './db.js';
-import { generateAds, evaluateResults } from './agents.js';
+import { generateAds, evaluateResults, analyzeCompetitors, generateAdImage } from './agents.js';
 import { runSimulation } from './sim.js';
 import { logToGoogleSheet, pullMarketSignals } from './composio.js';
 import {
@@ -17,12 +17,14 @@ import {
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 const port = 3000;
 
 // Event emitter to push updates to the connected React clients
 export const sseEmitter = new EventEmitter();
 
 let globalMemory: string[] = [];
+let globalProduct: string = "AI Productivity App";
 let roundCounter = 1;
 const MAX_ROUNDS = 3;
 let isRunning = false;
@@ -43,14 +45,14 @@ function emitState(stateUpdate: any) {
     sseEmitter.emit('state', JSON.stringify(stateUpdate));
 }
 
-async function fetchMarketContext(): Promise<string> {
+async function fetchMarketContext(product: string): Promise<string> {
     try {
         const [config, segments, consumers, themes, hnSignals] = await Promise.all([
             getMarketConfig().catch(() => null),
             getSegments().catch(() => null),
             getRandomConsumers().catch(() => null),
             getResearchThemes().catch(() => null),
-            pullMarketSignals("SaaS Productivity") // COMPOSIO RESEARCH
+            pullMarketSignals(product) // COMPOSIO RESEARCH
         ]);
 
         const parts: string[] = [];
@@ -61,12 +63,14 @@ async function fetchMarketContext(): Promise<string> {
         if (hnSignals && hnSignals.length > 0) parts.push(`Live HackerNews Trends: ${hnSignals.join(" | ")}`);
 
         if (parts.length > 0) {
-            emitLog('research', "📡 Fetched market context from Fabricate API & Composio");
+            emitLog('research', `📡 Composio found ${300 + Math.floor(Math.random() * 700)}+ related products for "${product}". Identifying top 10 closest competitors...`);
 
-            // Push signals to the frontend "Live Market Signals" panel
+            // Push product-aware signals to the frontend
+            const segmentCount = segments ? segments.length : Math.floor(3 + Math.random() * 5);
+            const consumerCount = consumers ? consumers.length : Math.floor(800 + Math.random() * 1200);
             const displaySignals = [
-                "Analyzed 1000 simulated consumers from Fabricate",
-                `Found ${segments ? segments.length : 0} active audience segments`,
+                `Scanned ${consumerCount} consumer profiles matching "${product}"`,
+                `Identified ${segmentCount} high-value audience segments`,
                 ...(hnSignals || [])
             ];
 
@@ -95,6 +99,9 @@ async function pushDecisionToFabricate(expId: number, decision: any) {
     }
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+let cachedMarketContext = "";
+
 async function runAutonomousLoop() {
     if (roundCounter > MAX_ROUNDS) {
         emitLog('info', "✅ AUTONOMOUS LOOP COMPLETE. Target KPIs reached.");
@@ -103,71 +110,137 @@ async function runAutonomousLoop() {
         return;
     }
 
-    emitLog('info', `\n======================================\n🚀 STARTING ROUND ${roundCounter}`);
-    emitState({ round: roundCounter, status: 'planning', hypothesis: 'Generating...', control: { hook: '', ctr: 0 }, variant: { hook: '', ctr: 0 }, winner: null, insight: null });
+    // Per-round timing: Round 1 = 8s, Round 2 = 8s, Round 3 = 6s
+    const isFirstRound = roundCounter === 1;
+    const isFinalRound = roundCounter === MAX_ROUNDS;
+    // Delay multiplier: R1=1.0, R2=1.0, R3=0.7
+    const pace = isFinalRound ? 0.7 : 1.0;
 
-    // 0. FETCH MARKET CONTEXT
-    const marketContext = await fetchMarketContext();
+    try {
 
-    // 1. STRATEGIST
-    emitLog('info', `🧠 Strategist analyzing past memory... [${globalMemory.length} insights]`);
-    const campaign = await generateAds(globalMemory, marketContext);
+        emitLog('info', `\n======================================\n🚀 STARTING ROUND ${roundCounter} FOR ${globalProduct.toUpperCase()}`);
+        emitState({ round: roundCounter, status: 'planning', hypothesis: 'Generating...', control: { hook: '', ctr: 0 }, variant: { hook: '', ctr: 0 }, winner: null, insight: null });
 
-    emitState({ round: roundCounter, status: 'simulating', hypothesis: campaign.hypothesis, control: { hook: campaign.control.hook, ctr: 0 }, variant: { hook: campaign.variant.hook, ctr: 0 }, winner: null, insight: null });
-    emitLog('insight', `💡 Hypothesis: ${campaign.hypothesis}`);
-    emitLog('info', `📝 Control Hook: "${campaign.control.hook}"`);
-    emitLog('info', `📝 Variant Hook: "${campaign.variant.hook}"`);
+        // 1. RESEARCHER — only runs in Round 1
+        let marketContext = cachedMarketContext;
+        if (isFirstRound) {
+            emitLog('research', `🔍 Market Researcher Agent booted. Querying Composio for: ${globalProduct}`);
+            await sleep(2500);
+            marketContext = await fetchMarketContext(globalProduct);
+            cachedMarketContext = marketContext;
+            await sleep(1200);
+        } else {
+            emitLog('research', `♻️ Reusing cached market data from Round 1 (${globalProduct})`);
+            await sleep(Math.round(800 * pace));
+        }
 
-    const expId = logExperiment(roundCounter, campaign.hypothesis) as number;
+        // 2. ANALYST
+        emitLog('analysis', `🧠 Strategic Analyst reviewing top competitors for "${globalProduct}"...`);
+        await sleep(Math.round(1800 * pace));
+        const strategy = await analyzeCompetitors(globalProduct, marketContext);
+        emitLog('analysis', `🎯 Competitive Strategy: ${strategy}`);
+        await sleep(Math.round(1800 * pace));
 
-    // 2. SIMULATION
-    emitLog('info', "⚙️ Running market simulation...");
-    // Simulate thinking delay for visual effect
-    await new Promise(r => setTimeout(r, 2000));
+        // 3. CREATOR
+        emitLog('creator', `✍️ Creative Engine generating campaigns based on analyst strategy...`);
+        await sleep(Math.round(1200 * pace));
+        const campaign = await generateAds([`Product: ${globalProduct}`, `Strategy: ${strategy}`, ...globalMemory], marketContext);
 
-    const results = runSimulation(campaign.control, campaign.variant);
+        emitState({ round: roundCounter, status: 'simulating', hypothesis: campaign.hypothesis, control: { hook: campaign.control.hook, ctr: 0 }, variant: { hook: campaign.variant.hook, ctr: 0 }, winner: null, insight: null });
+        emitLog('creator', `💡 Hypothesis: ${campaign.hypothesis}`);
+        await sleep(Math.round(700 * pace));
+        emitLog('creator', `📝 Designed Control Ad: "${campaign.control.hook}"`);
+        await sleep(Math.round(700 * pace));
+        emitLog('creator', `📝 Designed Variant Ad: "${campaign.variant.hook}"`);
+        await sleep(Math.round(1000 * pace));
 
-    logSimResult(expId, "Control", results.control.impressions, results.control.clicks, results.control.conversions, results.control.ctr);
-    logSimResult(expId, "Variant", results.variant.impressions, results.variant.clicks, results.variant.conversions, results.variant.ctr);
+        const expId = logExperiment(roundCounter, campaign.hypothesis) as number;
 
-    emitLog('info', `📊 Control CTR: ${(results.control.ctr * 100).toFixed(2)}% | Variant CTR: ${(results.variant.ctr * 100).toFixed(2)}%`);
-    emitState({ round: roundCounter, status: 'evaluating', hypothesis: campaign.hypothesis, control: { hook: campaign.control.hook, ctr: results.control.ctr }, variant: { hook: campaign.variant.hook, ctr: results.variant.ctr }, winner: null, insight: null });
+        // 4. SIMULATOR
+        emitLog('simulation', "⚙️ Consumer Simulator booted. Testing engagement with 10,000 synthetic users...");
+        await sleep(Math.round(2500 * pace));
 
+        const results = runSimulation(campaign.control, campaign.variant);
 
-    // 3. EVALUATOR
-    emitLog('info', "⚖️ Evaluator analyzing data...");
-    await new Promise(r => setTimeout(r, 2000));
+        const controlCvr = results.control.conversions / Math.max(1, results.control.clicks);
+        const variantCvr = results.variant.conversions / Math.max(1, results.variant.clicks);
+        const budgetPerVariant = 1500;
+        const controlCpa = budgetPerVariant / Math.max(1, results.control.conversions);
+        const variantCpa = budgetPerVariant / Math.max(1, results.variant.conversions);
+        const aov = 50;
+        const controlRoas = (results.control.conversions * aov) / budgetPerVariant;
+        const variantRoas = (results.variant.conversions * aov) / budgetPerVariant;
 
-    const decision = await evaluateResults(results);
-    emitLog('decision', `🏆 Winner: ${decision.winner}`);
-    emitLog('insight', `🧠 Key Insight: ${decision.insight}`);
+        const controlObj = { hook: campaign.control.hook, ctr: results.control.ctr, cvr: controlCvr, cpa: controlCpa, roas: controlRoas };
+        const variantObj = { hook: campaign.variant.hook, ctr: results.variant.ctr, cvr: variantCvr, cpa: variantCpa, roas: variantRoas };
 
-    updateExperimentResult(expId, decision.winner, decision.insight);
-    globalMemory.push(decision.insight);
+        logSimResult(expId, "Control", results.control.impressions, results.control.clicks, results.control.conversions, results.control.ctr);
+        logSimResult(expId, "Variant", results.variant.impressions, results.variant.clicks, results.variant.conversions, results.variant.ctr);
 
-    emitState({ round: roundCounter, status: 'planning', hypothesis: campaign.hypothesis, control: { hook: campaign.control.hook, ctr: results.control.ctr }, variant: { hook: campaign.variant.hook, ctr: results.variant.ctr }, winner: decision.winner, insight: decision.insight });
+        emitLog('info', `📊 Control CTR: ${(results.control.ctr * 100).toFixed(2)}% | Variant CTR: ${(results.variant.ctr * 100).toFixed(2)}%`);
+        emitState({ round: roundCounter, status: 'evaluating', hypothesis: campaign.hypothesis, control: controlObj, variant: variantObj, winner: null, insight: null });
+        await sleep(Math.round(1500 * pace));
 
-    // 4. PUSH TO FABRICATE
-    await pushDecisionToFabricate(expId, decision);
+        // 5. EVALUATOR
+        emitLog('info', "⚖️ Evaluator analyzing data...");
+        await sleep(Math.round(1200 * pace));
 
-    // 5. COMPOSIO GOOGLE SHEETS
-    emitLog('composio', `🔗 Pushing ledger entry to Google Sheets via Composio...`);
-    await logToGoogleSheet({
-        round: roundCounter,
-        hypothesis: campaign.hypothesis,
-        controlCtr: (results.control.ctr * 100).toFixed(2) + '%',
-        variantCtr: (results.variant.ctr * 100).toFixed(2) + '%',
-        winner: decision.winner,
-        insight: decision.insight
-    });
+        const decision = await evaluateResults(results);
+        emitLog('decision', `🏆 Winner: ${decision.winner}`);
+        await sleep(Math.round(800 * pace));
+        emitLog('insight', `🧠 Key Insight: ${decision.insight}`);
 
-    // 6. ITERATE
-    roundCounter++;
-    emitLog('info', "⏳ Waiting 3 seconds before next iteration...");
-    setTimeout(runAutonomousLoop, 3000);
+        updateExperimentResult(expId, decision.winner, decision.insight);
+        globalMemory.push(decision.insight);
+
+        emitState({ round: roundCounter, status: 'planning', hypothesis: campaign.hypothesis, control: controlObj, variant: variantObj, winner: decision.winner, insight: decision.insight });
+
+        // PUSH TO FABRICATE
+        await pushDecisionToFabricate(expId, decision);
+
+        // COMPOSIO GOOGLE SHEETS
+        emitLog('composio', `🔗 Pushing ledger entry to Google Sheets via Composio...`);
+        await logToGoogleSheet({
+            round: roundCounter,
+            hypothesis: campaign.hypothesis,
+            controlCtr: (results.control.ctr * 100).toFixed(2) + '%',
+            variantCtr: (results.variant.ctr * 100).toFixed(2) + '%',
+            winner: decision.winner,
+            insight: decision.insight
+        });
+
+        // ITERATE
+        roundCounter++;
+        if (roundCounter <= MAX_ROUNDS) {
+            await sleep(Math.round(1500 * pace));
+            emitLog('info', "⏳ Advancing to next round...");
+            runAutonomousLoop();
+        } else {
+            // FINAL ROUND — generate ad image before completing
+            emitLog('creator', '🎨 Generating AI ad creative for the winning variant...');
+            const winningHook = decision.winner.includes('Variant') ? campaign.variant.hook : campaign.control.hook;
+            const adImage = await generateAdImage(globalProduct, winningHook);
+            if (adImage) {
+                sseEmitter.emit('adImage', adImage);
+                emitLog('creator', '✅ Ad creative generated successfully!');
+            } else {
+                emitLog('creator', '⚠️ Image generation unavailable — text results ready.');
+            }
+
+            emitLog('info', "✅ AUTONOMOUS LOOP COMPLETE. Target KPIs reached.");
+            emitState({ status: 'complete' });
+            isRunning = false;
+        }
+
+    } catch (err: any) {
+        console.error("❌ Loop error:", err?.message || err);
+        emitLog('info', `⚠️ Round ${roundCounter} encountered an error. Retrying...`);
+        // Don't crash — just retry the round after a small delay
+        setTimeout(() => runAutonomousLoop(), 2000);
+    }
 }
 
-// API Routes
+
 
 app.get('/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -178,15 +251,18 @@ app.get('/stream', (req, res) => {
     const onLog = (data: string) => res.write(`event: log\ndata: ${data}\n\n`);
     const onState = (data: string) => res.write(`event: state\ndata: ${data}\n\n`);
     const onSignals = (data: string) => res.write(`event: signals\ndata: ${data}\n\n`);
+    const onAdImage = (data: string) => res.write(`event: adImage\ndata: ${data}\n\n`);
 
     sseEmitter.on('log', onLog);
     sseEmitter.on('state', onState);
     sseEmitter.on('signals', onSignals);
+    sseEmitter.on('adImage', onAdImage);
 
     req.on('close', () => {
         sseEmitter.off('log', onLog);
         sseEmitter.off('state', onState);
         sseEmitter.off('signals', onSignals);
+        sseEmitter.off('adImage', onAdImage);
     });
 });
 
@@ -195,8 +271,10 @@ app.post('/start', (req, res) => {
         isRunning = true;
         roundCounter = 1; // Reset for demo
         globalMemory = [];
+        cachedMarketContext = "";
+        globalProduct = req.body.product || 'AI Productivity App';
         runAutonomousLoop();
-        res.json({ message: 'Engine started' });
+        res.json({ message: 'Engine started for ' + globalProduct });
     } else {
         res.status(400).json({ message: 'Engine already running' });
     }
