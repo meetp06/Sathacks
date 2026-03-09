@@ -319,7 +319,7 @@ export default function App() {
                 <Zap size={12} className="text-amber-600" /> Live Market Signals (Composio)
               </h2>
               <div className="space-y-1">
-                {signals.slice(0, 4).map((s, i) => (
+                {signals.slice(0, 8).map((s, i) => (
                   <p key={i} className="text-[11px] text-slate-800 font-medium truncate">• {s}</p>
                 ))}
               </div>

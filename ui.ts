@@ -83,7 +83,7 @@ export default function AutonomousGlassOS() {
         if (systemState === 'COMPLETE' && isAutoPilot && budget > 0) {
             const timer = setTimeout(() => {
                 runAutonomousLoop();
-            }, 2500);
+            }, 5000);
             return () => clearTimeout(timer);
         }
     }, [systemState, isAutoPilot, budget]);
@@ -97,7 +97,7 @@ export default function AutonomousGlassOS() {
                     latency: Math.floor(Math.random() * 40) + 15
                 }));
                 setBudget(prev => Math.max(0, prev - (Math.random() * 12 + 4)));
-            }, 300);
+            }, 600);
         }
         return () => clearInterval(interval);
     }, [systemState]);
@@ -117,14 +117,14 @@ export default function AutonomousGlassOS() {
         const targetSegment = baseScenario.segment;
 
         const steps = [
-            { agent: 'STRATEGIST', time: 500, log: `Scanning social signals for [${targetSegment}]...` },
-            { agent: 'STRATEGIST', time: 2000, log: `Theme extracted: Core pain-points identified.` },
-            { agent: 'CREATOR', time: 3500, log: "Applying Evolutionary Mutation to ad copy..." },
-            { agent: 'CREATOR', time: 5000, log: "Fitness score calculated. Deploying to Sandbox." },
-            { agent: 'SIMULATOR', time: 6500, log: `Booting synthetic consumer agents...` },
-            { agent: 'SIMULATOR', time: 8000, log: "Running impression auction. Calculating fatigue penalties..." },
-            { agent: 'EVALUATOR', time: 9500, log: "Analyzing statistical significance. Guardrails checked." },
-            { agent: 'SYSTEM', time: 11000, log: `Cycle complete. Insights ready.` }
+            { agent: 'STRATEGIST', time: 2000, log: `Scanning social signals for [${targetSegment}]...` },
+            { agent: 'STRATEGIST', time: 8000, log: `Theme extracted: Core pain-points identified.` },
+            { agent: 'CREATOR', time: 14000, log: "Applying Evolutionary Mutation to ad copy..." },
+            { agent: 'CREATOR', time: 20000, log: "Fitness score calculated. Deploying to Sandbox." },
+            { agent: 'SIMULATOR', time: 26000, log: `Booting synthetic consumer agents...` },
+            { agent: 'SIMULATOR', time: 32000, log: "Running impression auction. Calculating fatigue penalties..." },
+            { agent: 'EVALUATOR', time: 38000, log: "Analyzing statistical significance. Guardrails checked." },
+            { agent: 'SYSTEM', time: 44000, log: `Cycle complete. Insights ready.` }
         ];
 
         for (let i = 0; i < steps.length; i++) {
@@ -173,7 +173,7 @@ export default function AutonomousGlassOS() {
             setActiveAgent(null);
             setAgentStatuses({});
             setCurrentRound(prev => prev + 1);
-        }, 11500);
+        }, 46000);
     };
 
     const glassPanel = "bg-[#b8a792]/95 backdrop-blur-3xl border border-white/40 shadow-xl rounded-[32px] p-6 text-slate-800";

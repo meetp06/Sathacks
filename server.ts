@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import { initDB, logExperiment, updateExperimentResult, logSimResult } from './db.js';
 import { generateAds, evaluateResults, analyzeCompetitors, generateAdImage } from './agents.js';
 import { runSimulation } from './sim.js';
-import { logToGoogleSheet, pullMarketSignals } from './composio.js';
+import { logToGoogleSheet, pullMarketSignals, pullRedditSignals, pullGoogleDocsContext, pullSearchConsoleData, pushWinningAdToGoogleDoc, pullTikTokSignals } from './composio.js';
 import {
     getMarketConfig,
     getSegments,
@@ -47,12 +47,18 @@ function emitState(stateUpdate: any) {
 
 async function fetchMarketContext(product: string): Promise<string> {
     try {
-        const [config, segments, consumers, themes, hnSignals] = await Promise.all([
+        const googleDocId = process.env.GOOGLE_DOC_ID;
+
+        const [config, segments, consumers, themes, hnSignals, redditSignals, docsContext, searchConsoleSignals, tkSignals] = await Promise.all([
             getMarketConfig().catch(() => null),
             getSegments().catch(() => null),
             getRandomConsumers().catch(() => null),
             getResearchThemes().catch(() => null),
-            pullMarketSignals(product) // COMPOSIO RESEARCH
+            pullMarketSignals(product),          // COMPOSIO — HackerNews
+            pullRedditSignals(product),           // COMPOSIO — Reddit
+            pullGoogleDocsContext(googleDocId),   // COMPOSIO — Google Docs
+            pullSearchConsoleData(),              // COMPOSIO — Google Search Console
+            pullTikTokSignals(product)            // COMPOSIO — TikTok
         ]);
 
         const parts: string[] = [];
@@ -61,6 +67,10 @@ async function fetchMarketContext(product: string): Promise<string> {
         if (consumers) parts.push(`Sample Consumers: ${JSON.stringify(consumers)}`);
         if (themes) parts.push(`Research Themes: ${JSON.stringify(themes)}`);
         if (hnSignals && hnSignals.length > 0) parts.push(`Live HackerNews Trends: ${hnSignals.join(" | ")}`);
+        if (redditSignals && redditSignals.length > 0) parts.push(`Reddit Community Signals: ${redditSignals.join(" | ")}`);
+        if (docsContext) parts.push(`User Context Doc: ${docsContext}`);
+        if (searchConsoleSignals && searchConsoleSignals.length > 0) parts.push(`Search Console Analytics: ${searchConsoleSignals.join(" | ")}`);
+        if (searchConsoleSignals && searchConsoleSignals.length > 0) parts.push(`Search Console Analytics: ${searchConsoleSignals.join(" | ")}`);
 
         if (parts.length > 0) {
             emitLog('research', `📡 Composio found ${300 + Math.floor(Math.random() * 700)}+ related products for "${product}". Identifying top 10 closest competitors...`);
@@ -71,8 +81,15 @@ async function fetchMarketContext(product: string): Promise<string> {
             const displaySignals = [
                 `Scanned ${consumerCount} consumer profiles matching "${product}"`,
                 `Identified ${segmentCount} high-value audience segments`,
-                ...(hnSignals || [])
+                ...(hnSignals || []),
+                ...(redditSignals || []),
+                ...(searchConsoleSignals || []),
+                ...(tkSignals || []),
             ];
+
+            if (docsContext) {
+                displaySignals.push(`📄 Loaded context from Google Docs`);
+            }
 
             sseEmitter.emit('signals', JSON.stringify(displaySignals));
             return parts.join("\n");
@@ -219,12 +236,21 @@ async function runAutonomousLoop() {
             // FINAL ROUND — generate ad image before completing
             emitLog('creator', '🎨 Generating AI ad creative for the winning variant...');
             const winningHook = decision.winner.includes('Variant') ? campaign.variant.hook : campaign.control.hook;
+            const winningMetrics = decision.winner.includes('Variant') ? variantObj : controlObj;
+
             const adImage = await generateAdImage(globalProduct, winningHook);
             if (adImage) {
                 sseEmitter.emit('adImage', adImage);
                 emitLog('creator', '✅ Ad creative generated successfully!');
             } else {
                 emitLog('creator', '⚠️ Image generation unavailable — text results ready.');
+            }
+
+            const googleDocId = process.env.GOOGLE_DOC_ID;
+            if (googleDocId) {
+                emitLog('composio', `📄 Pushing final winning ad to Google Docs...`);
+                await pushWinningAdToGoogleDoc(googleDocId, globalProduct, winningHook, decision.insight, winningMetrics);
+                emitLog('composio', `✅ Final strategy synced to Google Doc!`);
             }
 
             emitLog('info', "✅ AUTONOMOUS LOOP COMPLETE. Target KPIs reached.");
